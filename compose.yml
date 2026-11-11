@@ -1,0 +1,11 @@
+# The speech service at isbell.fmap.dev/voice, behind the host's Caddy (handle_path /voice/*), on the
+# Docker bridge only. Its key is in .env, written on the server and never committed.
+#   docker compose up -d --build
+name: isbell-voice
+services:
+  voice:
+    build: .
+    env_file: .env
+    ports:
+      - "172.17.0.1:5803:8080"
+    restart: unless-stopped
