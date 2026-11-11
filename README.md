@@ -2,7 +2,7 @@
 
 Voice input for [Isbell](https://github.com/bencode/Isbell). Each request is one recording. The service turns it into text with DashScope's `qwen-audio-3.0-asr-flash`, tidies the text with `qwen3.8-flash`, and the result goes into Isbell's message box.
 
-Isbell's web app shows its mic button only when it is built with `VITE_VOICE_URL`. The service has no auth for now. Its rate limit is loose: 20 recordings per minute per client, kept in memory. A recording can be at most 5 minutes long and at most 10 MB.
+Isbell's web app shows its mic button only when it is built with `VITE_VOICE_URL`. The service has no auth for now. Its limits are loose and kept in memory: each client may send 20 recordings a minute and 60 minutes of speech a day (Beijing time). A recording is still taken while the day is not used up, even if it goes past. A recording can be at most 5 minutes long and at most 10 MB.
 
 ## Contract
 
@@ -20,7 +20,7 @@ type VoiceError = { error: string } // 400 413 429 502
 | ------ | --------------------------------------------------------------------------------- |
 | 400    | No audio, or audio that can't be read                                             |
 | 413    | Over 5 minutes, or over 10 MB                                                     |
-| 429    | Over 20 a minute. The response carries `Retry-After`                              |
+| 429    | Over 20 a minute, or the day's 60 minutes used up. `Retry-After` says how long    |
 | 502    | DashScope failed or took over 3 minutes. The response carries DashScope's message |
 
 ## Run locally

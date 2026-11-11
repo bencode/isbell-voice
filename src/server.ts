@@ -1,19 +1,24 @@
 // Voice input for Isbell: a recording in, its transcript and the transcript tidied out. Reached only
-// through the host's reverse proxy (isbell.fmap.dev/voice), so it needs no CORS. No auth, and a
-// loose rate limit; a recording is five minutes and 10 MB at most.
+// through the host's reverse proxy (isbell.fmap.dev/voice), so it needs no CORS. No auth, and loose
+// limits: 20 recordings a minute and 60 minutes a day for each client; a recording is five minutes
+// and 10 MB at most.
 
 import { serve } from '@hono/node-server'
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
 import { rateLimiter } from 'hono-rate-limiter'
 import { AudioError, MAX_SECONDS, toMp3 } from './audio.ts'
 import { polish, transcribe } from './dashscope.ts'
+import { DAILY_SECONDS, take } from './quota.ts'
 
 // Five minutes recorded as a browser does, aac on Safari at the most, stay under this.
 const MAX_BYTES = 10 * 1024 * 1024
 
 const app = new Hono()
+
+// The client, as the reverse proxy saw it.
+const client = (c: Context) => c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
 
 app.get('/healthz', c => c.text('ok'))
 
@@ -24,8 +29,7 @@ app.post(
   rateLimiter({
     windowMs: 60_000,
     limit: 20,
-    // The client, as the reverse proxy saw it.
-    keyGenerator: c => c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local',
+    keyGenerator: client,
     standardHeaders: 'draft-7',
     message: { error: 'too many recordings, wait a minute' },
   }),
@@ -36,6 +40,11 @@ app.post(
     const { mp3, seconds } = await toMp3(new Uint8Array(await audio.arrayBuffer()))
     if (seconds > MAX_SECONDS)
       return c.json({ error: `the recording is over ${MAX_SECONDS / 60} minutes` }, 413)
+    const spent = take(client(c), seconds)
+    if (spent) {
+      c.header('Retry-After', String(spent.retryAfter))
+      return c.json({ error: `today's ${DAILY_SECONDS / 60} minutes are used up` }, 429)
+    }
     const raw = await transcribe(mp3)
     // Silence is heard as nothing, and there is nothing to tidy.
     const polished = raw ? await polish(raw) : ''
